@@ -106,5 +106,10 @@ int main(int argc, char *argv[]) {
     fscanf(runtime_control_file, "%d", &s);
   }
 
+
+  fclose(log_file);
+  fclose(runtime_control_file);
+  free(arr);
+
   return 0;
 }

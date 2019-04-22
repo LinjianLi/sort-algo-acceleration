@@ -100,12 +100,15 @@ void CountSortOnBits(int *array, size_t array_size,
   }
 
   memcpy(array, output_sorted, array_size*sizeof(*array));
+  free(output_sorted);
+  free(array_radixes);
+  free(histogram);
 }
 
 
 void CountSortOnBits_MultiThreadsByOMP(int *array, const size_t array_size,
-                     const size_t bits_leftmost_pos, const size_t bits_rightmost_pos,
-                     const size_t num_threads) {
+                                       const size_t bits_leftmost_pos, const size_t bits_rightmost_pos,
+                                       const size_t num_threads) {
 
   if ((array_size/num_threads)*num_threads != array_size) {
     fprintf(stderr,"For now, the algorithm only support the input that the array size is multiple of number of threads!\n");
@@ -182,6 +185,7 @@ void CountSortOnBits_MultiThreadsByOMP(int *array, const size_t array_size,
   }
 
   memcpy(local_histograms, updated_local_histograms, num_threads * num_radixes * sizeof(*local_histograms));
+  free(updated_local_histograms);
 
   // Fill elements into the output array, according the histogram.
   // For the stable sorting algorithm, counting sort now need to
@@ -201,6 +205,9 @@ void CountSortOnBits_MultiThreadsByOMP(int *array, const size_t array_size,
   }
 
   memcpy(array, output_sorted, array_size*sizeof(*array));
+  free(output_sorted);
+  free(local_histograms);
+  free(array_radixes);
 }
 
 
@@ -301,6 +308,11 @@ void CountSortOnBits_Buffer_SingleThread(int *array, size_t array_size,
   }
 
   memcpy(array, output_sorted, array_size*sizeof(*array));
+  free(output_sorted);
+  free(array_radixes);
+  free(buffers);
+  free(buf_write_pointers);
+  free(histogram);
 }
 
 
@@ -391,7 +403,7 @@ void CountSortOnBits_Buffer_MultiThreadsByOMP(int *array, size_t array_size,
   }
 
   memcpy(local_histograms, updated_local_histograms, num_threads * num_radixes * sizeof(*local_histograms));
-
+  free(updated_local_histograms);
 
   // Fill elements into the output array, according the histogram.
   // For the stable sorting algorithm, counting sort now need to
@@ -442,9 +454,14 @@ void CountSortOnBits_Buffer_MultiThreadsByOMP(int *array, size_t array_size,
         }
       }
     }
+    free(buffers);
+    free(buf_write_pointers);
   }
 
   memcpy(array, output_sorted, array_size*sizeof(*array));
+  free(output_sorted);
+  free(local_histograms);
+  free(array_radixes);
 }
 
 
