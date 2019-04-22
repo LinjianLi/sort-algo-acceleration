@@ -17,6 +17,8 @@ int main(int argc, char *argv[]) {
   log_file = fopen("sort-algorithm-acceleration-program-log.txt", "w");
   runtime_control_file = fopen("sort-algorithm-acceleration-runtime-control.txt", "r");
 
+  fprintf(log_file, "Number of elements: %d\nSeed: %f\n----------\n", n, seed);
+
   int s;
   //printf("Select a method: ");
   fscanf(runtime_control_file, "%d", &s);

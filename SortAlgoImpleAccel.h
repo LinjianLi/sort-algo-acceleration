@@ -7,7 +7,10 @@
 
 #include <memory.h>
 #include <math.h>
+#include <stdint.h>
 #include "omp.h"
+
+
 
 int compare (const void *a, const void *b){
   return ( *(int*)a - *(int*)b );

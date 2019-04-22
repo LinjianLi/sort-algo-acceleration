@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.5)
 project(sort_algo_acceleration C)
 
 set(CMAKE_C_STANDARD 11)
