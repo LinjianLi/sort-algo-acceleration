@@ -96,6 +96,7 @@ int main(int argc, char *argv[]) {
     diff = 1000000*(end.tv_sec-start.tv_sec) + (end.tv_usec-start.tv_usec);
     setlocale(LC_NUMERIC, "");
     fprintf(log_file, "The time spent is %'ld microseconds\n----------\n", diff);
+    fflush(log_file);
     // diff is time spent by the program, and the unit is microsecond
 
 
