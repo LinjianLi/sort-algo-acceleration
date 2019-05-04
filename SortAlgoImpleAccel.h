@@ -6,16 +6,15 @@
 #define SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H
 
 #include <memory.h>
+#include <string.h>  // memset
 #include <math.h>
 #include <stdint.h>
 #include "omp.h"
 
 
-
 int compare (const void *a, const void *b){
   return ( *(int*)a - *(int*)b );
 }
-
 
 void PrintArray_Int(int *arr, size_t arr_size, size_t line_size) {
   printf("{ ");
@@ -106,9 +105,9 @@ void CountSortOnBits(int *array, size_t array_size,
 }
 
 
-void CountSortOnBits_MultiThreadsByOMP(int *array, const size_t array_size,
-                                       const size_t bits_leftmost_pos, const size_t bits_rightmost_pos,
-                                       const size_t num_threads) {
+void CountSortOnBits_OMP(int *array, const size_t array_size,
+                         const size_t bits_leftmost_pos, const size_t bits_rightmost_pos,
+                         const size_t num_threads) {
 
   if ((array_size/num_threads)*num_threads != array_size) {
     fprintf(stderr,"For now, the algorithm only support the input that the array size is multiple of number of threads!\n");
@@ -219,9 +218,9 @@ void CountSortOnBits_MultiThreadsByOMP(int *array, const size_t array_size,
  *      which means that bits numbering start at 0 for the least significant bit.
  *      So, bits_leftmost_pos > bits_rightmost_pos.
  */
-void CountSortOnBits_Buffer_SingleThread(int *array, size_t array_size,
-                                         size_t bits_leftmost_pos, size_t bits_rightmost_pos,
-                                         size_t num_elems_per_radix_buf) {
+void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
+                                    size_t bits_leftmost_pos, size_t bits_rightmost_pos,
+                                    size_t num_elems_per_radix_buf) {
 
 
   const size_t radix_size = bits_leftmost_pos-bits_rightmost_pos+1;
@@ -324,9 +323,9 @@ void CountSortOnBits_Buffer_SingleThread(int *array, size_t array_size,
  *      which means that bits numbering start at 0 for the least significant bit.
  *      So, bits_leftmost_pos > bits_rightmost_pos.
  */
-void CountSortOnBits_Buffer_MultiThreadsByOMP(int *array, size_t array_size,
-                                              size_t bits_leftmost_pos, size_t bits_rightmost_pos,
-                                              size_t num_elems_per_radix_buf, size_t num_threads) {
+void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
+                                size_t bits_leftmost_pos, size_t bits_rightmost_pos,
+                                size_t num_elems_per_radix_buf, size_t num_threads) {
 
 
   if ((array_size/num_threads)*num_threads != array_size) {
@@ -465,45 +464,62 @@ void CountSortOnBits_Buffer_MultiThreadsByOMP(int *array, size_t array_size,
 }
 
 
-void RadixSortLSD(int *arr, size_t arr_size, size_t radix_size) {
-  int num_digits = sizeof(int)*8/radix_size;
-  for (size_t i=0; i<num_digits; ++i) {
-    CountSortOnBits(arr, arr_size, i*radix_size+radix_size-1, i*radix_size);
+
+void RadixSortLSD_OMP(int *arr, size_t arr_size, size_t radix_size, size_t num_threads) {
+  int num_digits = ((sizeof(int)*8) + radix_size - 1)/radix_size;  // Ceiling.
+  if (num_threads==1) {
+    for (size_t i=0; i<num_digits; ++i) {
+      int left = i*radix_size+radix_size-1;
+      left = left>=32 ? 31 : left;
+      int right = i*radix_size;
+      CountSortOnBits(arr, arr_size, left, right);
+    }
+  } else if (num_threads>1) {
+    for (size_t i=0; i<num_digits; ++i) {
+      int left = i*radix_size+radix_size-1;
+      left = left>=32 ? 31 : left;
+      int right = i*radix_size;
+      CountSortOnBits_OMP(arr, arr_size,
+                        left, right,
+                        num_threads);
+    }
+  } else {
+    exit(1);
   }
+
 }
 
 
-void RadixSortLSD_Buffer_SingleThread(int *arr, size_t arr_size, size_t radix_size, size_t num_elems_per_radix_buf) {
-  int num_digits = sizeof(int)*8/radix_size;
-  for (size_t i=0; i<num_digits; ++i) {
-    CountSortOnBits_Buffer_SingleThread(arr, arr_size,
-                                        i * radix_size + radix_size - 1, i * radix_size,
-                                        num_elems_per_radix_buf);
-  }
-}
+void RadixSortLSD_Buffer_OMP(int *arr, size_t arr_size, size_t radix_size, 
+                             size_t num_elems_per_radix_buf,
+                             size_t num_threads) {
+  int num_digits = ((sizeof(int)*8) + radix_size - 1)/radix_size;  // Ceiling.
 
-
-
-void RadixSortLSD_Buffer_MultiThreads(int *arr, size_t arr_size, size_t radix_size, size_t num_elems_per_radix_buf, size_t num_threads) {
-  int num_digits = sizeof(int)*8/radix_size;
-  for (size_t i=0; i<num_digits; ++i) {
-    CountSortOnBits_Buffer_MultiThreadsByOMP(arr, arr_size,
-                                             i * radix_size + radix_size - 1, i * radix_size,
-                                             num_elems_per_radix_buf, num_threads);
-  }
-}
-
-
-void RadixSortLSD_MultiThreads(int *arr, size_t arr_size, size_t radix_size, size_t num_threads) {
-  int num_digits = sizeof(int)*8/radix_size;
-  for (size_t i=0; i<num_digits; ++i) {
-    CountSortOnBits_MultiThreadsByOMP(arr, arr_size,
-                                      i * radix_size + radix_size - 1, i * radix_size,
-                                      num_threads);
+  if (num_threads==1) {
+    for (size_t i=0; i<num_digits; ++i) {
+      int left = i*radix_size+radix_size-1;
+      left = left>=32 ? 31 : left;
+      int right = i*radix_size;
+      CountSortOnBits_Buffer_1Thread(arr, arr_size,
+                                     left, right,
+                                     num_elems_per_radix_buf);
+    }
+  } else if (num_threads>1) {
+    for (size_t i=0; i<num_digits; ++i) {
+      int left = i*radix_size+radix_size-1;
+      left = left>=32 ? 31 : left;
+      int right = i*radix_size;
+      CountSortOnBits_Buffer_OMP(arr, arr_size,
+                                 left, right,
+                                 num_elems_per_radix_buf, num_threads);
+    }
+  } else {
+    exit(1);
   }
 }
 
 
 void ParalMergeSort_SIMD() {}
+
 
 #endif //SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H

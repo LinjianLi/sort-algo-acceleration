@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
   sort_gen(arr, n, seed);
 
   FILE *log_file, *runtime_control_file;
-  log_file = fopen("program-log.txt", "w");
+  log_file = fopen("program-log-sort.txt", "w");
   runtime_control_file = fopen("runtime-control.txt", "r");
 
   fprintf(log_file, "Number of elements: %d\nSeed: %f\n----------\n", n, seed);
@@ -40,43 +40,43 @@ int main(int argc, char *argv[]) {
         qsort(arr, n, sizeof(int), compare);
         break;
       case 2:
-        RadixSortLSD(arr,n,radix_size);
+        RadixSortLSD_OMP(arr, n, radix_size, 1);
         break;
       case 3:
-        RadixSortLSD_Buffer_SingleThread(arr, n, radix_size, 16);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 8, 1);
         break;
       case 4:
-        RadixSortLSD_Buffer_SingleThread(arr, n, radix_size, 32);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 16, 1);
         break;
       case 5:
-        RadixSortLSD_Buffer_SingleThread(arr, n, radix_size, 64);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 32, 1);
         break;
       case 6:
-        RadixSortLSD_Buffer_SingleThread(arr, n, radix_size, 128);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 64, 1);
         break;
       case 7:
-        RadixSortLSD_MultiThreads(arr, n, radix_size, 2);
+        RadixSortLSD_OMP(arr, n, radix_size, 8);
         break;
       case 8:
-        RadixSortLSD_MultiThreads(arr, n, radix_size, 4);
+        RadixSortLSD_OMP(arr, n, radix_size, 12);
         break;
       case 9:
-        RadixSortLSD_MultiThreads(arr, n, radix_size, 8);
+        RadixSortLSD_OMP(arr, n, radix_size, 16);
         break;
       case 10:
-        RadixSortLSD_MultiThreads(arr, n, radix_size, 16);
+        RadixSortLSD_OMP(arr, n, radix_size, 25);
         break;
       case 11:
-        RadixSortLSD_Buffer_MultiThreads(arr, n, radix_size, 16, 4);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 8, 8);
         break;
       case 12:
-        RadixSortLSD_Buffer_MultiThreads(arr, n, radix_size, 32, 4);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 16, 8);
         break;
       case 13:
-        RadixSortLSD_Buffer_MultiThreads(arr, n, radix_size, 64, 4);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 32, 8);
         break;
       case 14:
-        RadixSortLSD_Buffer_MultiThreads(arr, n, radix_size, 128, 4);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 64, 8);
         break;
       case 15:
 
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
 
     // Calculate the time spent by the multiplication.
     gettimeofday(&end,NULL);
-    diff = 1000000*(end.tv_sec-start.tv_sec) + (end.tv_usec-start.tv_usec);
+    diff = (end.tv_sec-start.tv_sec)*1.0E6 + (end.tv_usec-start.tv_usec);
     setlocale(LC_NUMERIC, "");
     fprintf(log_file, "The time spent is %'ld microseconds\n----------\n", diff);
     fflush(log_file);
