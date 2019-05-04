@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
         RadixSortLSD_OMP(arr, n, radix_size, 25);
         break;
       case 11:
-        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 8, 8);
+        RadixSortLSD_Buffer_OMP(arr, n, radix_size, 1, 8);
         break;
       case 12:
         RadixSortLSD_Buffer_OMP(arr, n, radix_size, 16, 8);
