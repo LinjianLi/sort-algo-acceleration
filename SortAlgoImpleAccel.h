@@ -289,17 +289,9 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
     if (buf_write_pointers[current_radix]==0) {
       size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
 
-
-
-//      for (size_t j=0; j<num_elems_per_radix_buf; ++j) {
-//        output_sorted[--histogram[current_radix]] = buffers[buf_pos_this_radix + j];
-//      }
-
       // Flush buffer to memory.
       histogram[current_radix] -= num_elems_per_radix_buf;
       memcpy(output_sorted+histogram[current_radix], buffers+buf_pos_this_radix, num_elems_per_radix_buf*sizeof(*output_sorted));
-
-
 
       buf_write_pointers[current_radix] = num_elems_per_radix_buf;   // Reset pointer.
     }
@@ -312,13 +304,7 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
     // If the pointer is not at the end,
     // it means that this buffer contains some elements that have not been flushed.
     if (buf_write_pointers[current_radix]!=num_elems_per_radix_buf) {
-
       size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-
-
-//      for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
-//        output_sorted[--histogram[current_radix]] = buffers[buf_pos_this_radix + j];
-//      }
 
       // Flush buffer to memory.
       int num_remain = num_elems_per_radix_buf - buf_write_pointers[current_radix];
@@ -326,8 +312,6 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
       memcpy(output_sorted+histogram[current_radix],
               buffers + buf_pos_this_radix + buf_write_pointers[current_radix],
              num_remain*sizeof(*output_sorted));
-
-
     }
   }
 
@@ -435,11 +419,13 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
   // If scanning from the start, the output is unstable.
   #pragma omp parallel
   {
-    // Initialize buffers. And set write pointers to all zero.
+    // Initialize buffers. And set write pointers to the end of each buffer.
+    // Program writes from the end to the start.
     int *buffers = malloc(num_radixes * num_elems_per_radix_buf * sizeof(*buffers));
     size_t *buf_write_pointers = malloc(num_radixes * sizeof(*buf_write_pointers));
-    memset(buf_write_pointers, 0, num_radixes*sizeof(*buf_write_pointers));
-
+    for (size_t i=0; i<num_radixes; ++i) {
+      buf_write_pointers[i] = num_elems_per_radix_buf;
+    }
 
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
@@ -449,17 +435,24 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
       int current_radix = array_radixes[i];
 
       // Put element into buffer.
-      size_t buf_w_p = buf_write_pointers[current_radix]++;
+      size_t buf_w_p = --buf_write_pointers[current_radix];
       buffers[current_radix * num_elems_per_radix_buf + buf_w_p] = array[i];
 
       // If the buffer is full, flush it.
-      if (buf_write_pointers[current_radix]==num_elems_per_radix_buf) {
+      if (buf_write_pointers[current_radix]==0) {
         size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-        for (size_t j=0; j<num_elems_per_radix_buf; ++j) {  // Flush buffer to memory.
-          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
-          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
-        }
-        buf_write_pointers[current_radix] = 0;   // Reset pointer.
+
+//        for (size_t j=0; j<num_elems_per_radix_buf; ++j) {  // Flush buffer to memory.
+//          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
+//          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
+//        }
+
+        // Flush buffer to memory.
+        local_histograms[thread_histogram_start_pos + current_radix] -= num_elems_per_radix_buf;
+        int write_pointer = local_histograms[thread_histogram_start_pos + current_radix];
+        memcpy(output_sorted+write_pointer, buffers+buf_pos_this_radix, num_elems_per_radix_buf*sizeof(*output_sorted));
+
+        buf_write_pointers[current_radix] = num_elems_per_radix_buf;   // Reset pointer.
       }
 
     }
@@ -470,12 +463,23 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
     for (size_t current_radix=0; current_radix<num_radixes; ++current_radix) {
       // If the pointer is not at 0,
       // it means that this buffer contains some elements that have not been flushed.
-      if (buf_write_pointers[current_radix]!=0) {
+      if (buf_write_pointers[current_radix]!=num_elems_per_radix_buf) {
         size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-        for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
-          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
-          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
-        }
+
+
+//        for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
+//          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
+//          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
+//        }
+
+        // Flush buffer to memory.
+        int num_remain = num_elems_per_radix_buf - buf_write_pointers[current_radix];
+        local_histograms[thread_histogram_start_pos + current_radix] -= num_remain;
+        int write_pointer = local_histograms[thread_histogram_start_pos + current_radix];
+        memcpy(output_sorted+write_pointer,
+               buffers + buf_pos_this_radix + buf_write_pointers[current_radix],
+               num_remain*sizeof(*output_sorted));
+
       }
     }
     free(buffers);
