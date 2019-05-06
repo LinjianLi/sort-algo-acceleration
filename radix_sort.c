@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
 
   fprintf(log_file, "Number of elements: %d\nSeed: %f\n----------\n", n, seed);
 
-  int num_threads[6] = {1,2,4,8,16,25};
+  int num_threads[6] = {25,16,8,4,2,1};
   for (int i=0; i<6; ++i) {
     for (size_t radix_size = 7; radix_size <= 9; ++radix_size) {
       for (int buffer_size = 8; buffer_size <=32; buffer_size<<=1) {
@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         RadixSortLSD_Buffer_OMP(arr, n, radix_size, buffer_size, num_threads[i]);
 
         fprintf(log_file,
-                "D:%d\tK:%d\tT:%d\n"
+                "D:%d    K:%d    T:%d\n"
                 "Numbers at position 0.25, 0.5, 0.75: %d, %d, %d\n",
                 radix_size, buffer_size, num_threads[i], arr[(size_t )(n*0.25)], arr[n>>1], arr[(size_t )(n*0.75)]);
 
