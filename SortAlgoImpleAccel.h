@@ -735,8 +735,8 @@ void ParalMergeSort_SIMD(int *arr, size_t arr_size, int num_threads) {
 void SSETest() {
   int aaa[10] = {1,2,3,4,5,6,7,8,9,10};
   PrintArray_Int(aaa, 10, 10);
-  __m128i A = _mm_loadu_si128(aaa),
-          B = _mm_loadu_si128(aaa+4),
+  __m128i A = _mm_loadu_si128((__m128i*)aaa),
+          B = _mm_loadu_si128((__m128i*)aaa+4),
           temp;
 
   temp = _mm_shuffle_epi32(A, SHUFFLE_REVERSE);
