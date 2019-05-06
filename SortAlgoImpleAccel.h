@@ -557,202 +557,204 @@ void RadixSortLSD_Buffer_OMP(int *arr, size_t arr_size, size_t radix_size,
 }
 
 
-void Sort4x4OnColumn(__m128i a, __m128i b, __m128i c, __m128i d) {
-  __m128i temp_min0, temp_min1, temp_max0, temp_max1, temp_mid0, temp_mid1;
-  temp_min0 = _mm_min_epi32(a, b);
-  temp_min1 = _mm_min_epi32(c, d);
-  temp_max0 = _mm_max_epi32(a, b);
-  temp_max1 = _mm_max_epi32(c, d);
-  a = _mm_min_epi32(temp_min0, temp_min1);
-  d = _mm_min_epi32(temp_max0, temp_max1);
-  temp_mid0 = _mm_max_epi32(temp_min0, temp_min1);
-  temp_mid1 = _mm_min_epi32(temp_max0, temp_max1);
-  b = _mm_min_epi32(temp_mid0, temp_mid1);
-  c = _mm_max_epi32(temp_mid0, temp_mid1);
-}
-
-
-void Transpose4x4(__m128i a, __m128i b, __m128i c, __m128i d) {
-  // Similar to the _MM_TRANSPOSE4_PS in <xmmintrin.h>.
-  __m128i temp0, temp1, temp2, temp3;
-  temp0 = _mm_unpacklo_epi32(a, b);
-  temp2 = _mm_unpacklo_epi32(c, d);
-  temp1 = _mm_unpackhi_epi32(a, b);
-  temp3 = _mm_unpackhi_epi32(c, d);
-  a = _mm_unpacklo_epi32(temp0, temp2);
-  b = _mm_unpackhi_epi32(temp0, temp2);
-  c = _mm_unpacklo_epi32(temp1, temp3);
-  d = _mm_unpackhi_epi32(temp1, temp3);
-}
-
-void InsertionSort(int *arr, size_t arr_size, int start, int end_exclude) {
-  for (int i=start+1; i<end_exclude; ++i) {
-    int curr = arr[i];
-    int j=i-1;
-    for (; j>=0 && arr[j]>curr; --j) {
-      arr[j+1] = arr[j];
-    }
-    arr[j+1] = curr;
-  }
-}
-
-
-void BitonicMergeKernel(__m128i *O1, __m128i *O2, __m128i A, __m128i B) {
-
-  __m128i L1, H1, L1p, H1p;
-  L1 = _mm_min_epi32(A, B);
-  H1 = _mm_max_epi32(A, B);
-  // In L1p, the first two ints are from L1, and the last two ints are from H1.
-  L1p = _mm_blend_epi32(L1, _mm_shuffle_epi32(H1,SHUFFLE_REVERSE), 0xC);
-  L1p = _mm_shuffle_epi32(L1p, SHUFFLE_REVERSE_LAST_TW0);
-  // In H1p, the first two ints are from H1, and the last two ints are from L1.
-  H1p = _mm_blend_epi32(_mm_shuffle_epi32(L1,SHUFFLE_REVERSE), H1, 0x3);
-  H1p = _mm_shuffle_epi32(H1p, SHUFFLE_REVERSE_FIRST_TW0);
-
-  __m128i L2, H2, L2p, H2p, L2pp, H2pp;
-  L2 = _mm_min_epi32(L2, H2);
-  H2 = _mm_min_epi32(L2, H2);
-  L2p = _mm_unpacklo_epi32(L2, H2);
-  H2p = _mm_unpackhi_epi32(L2, H2);
-  L2pp = _mm_blend_epi32(L2p, _mm_shuffle_epi32(H2p, SHUFFLE_REVERSE), 0xC);
-  L2pp = _mm_shuffle_epi32(L2pp, SHUFFLE_REVERSE_LAST_TW0);
-  H2pp = _mm_blend_epi32(_mm_shuffle_epi32(L2p, SHUFFLE_REVERSE), H2p, 0x3);
-  H2pp = _mm_shuffle_epi32(H2pp, SHUFFLE_REVERSE_FIRST_TW0);
-
-  __m128i L3, H3;
-  L3 = _mm_min_epi32(L2pp, H2pp);
-  H3 = _mm_max_epi32(L2pp, H2pp);
-  *O1 = _mm_blend_epi32(L3, _mm_shuffle_epi32(H3,SHUFFLE_REVERSE), 0xC);
-  *O1 = _mm_shuffle_epi32(*O1,SHUFFLE_REVERSE_LAST_TW0);
-  *O2 = _mm_blend_epi32(_mm_shuffle_epi32(L3,SHUFFLE_REVERSE), H3, 0x3);
-  *O2 = _mm_shuffle_epi32(*O2,SHUFFLE_REVERSE_FIRST_TW0);
-
-}
-
-
-void MergeConsecutive2Seqs(int *arr, int first_start, int second_start, int second_end_exclude) {
-  // todo: implement
-}
-
-
-void SortBlock(int *arr, size_t arr_size, int start, int end_exclude, int num_threads) {
-  omp_set_num_threads(num_threads);
-  int elements_each_thread = ((end_exclude-start)+num_threads-1)/num_threads;  // Ceiling.
-  #pragma omp parallel
-  {
-    int pid = omp_get_thread_num();
-    int offset = pid*elements_each_thread;
-    int thread_element_start = start + offset;
-    int thread_element_end = thread_element_start + elements_each_thread;
-    thread_element_end = thread_element_end>end_exclude ? end_exclude : thread_element_end;
-
-    // Generate sorted sequences of length 4.
-    for (int i=thread_element_start; i<thread_element_end; i+=16) {
-      int remain_elements = thread_element_end - i;
-      if (remain_elements>=16) {
-        __m128i a, b, c, d;
-        a = _mm_loadu_si128((__m128i*)arr+i);
-        b = _mm_loadu_si128((__m128i*)arr+i+4);
-        c = _mm_loadu_si128((__m128i*)arr+i+8);
-        d = _mm_loadu_si128((__m128i*)arr+i+16);
-        Sort4x4OnColumn(a, b, c, d);
-        Transpose4x4(a, b, c, d);
-        _mm_storeu_si128((__m128i*)arr+i, a);
-        _mm_storeu_si128((__m128i*)arr+i+4, b);
-        _mm_storeu_si128((__m128i*)arr+i+8, c);
-        _mm_storeu_si128((__m128i*)arr+i+12, d);
-      } else {
-        InsertionSort(arr, arr_size, i, i+remain_elements);
-      }
-    }
-
-    // Merge sequences of length 4 to 8, and 8 to 16, and so on.
-    int sequence_size;
-    for (sequence_size=4; sequence_size<=elements_each_thread; sequence_size<<=1) {
-      int num_sequences = (elements_each_thread+sequence_size-1)/sequence_size;
-
-      // Merge 2 sequences at a time.
-      for (int i=0; i<num_sequences; i+=2) {
-
-//        MergeConsecutive2Seqs(arr,
-//                arr+thread_element_start+i*sequence_size,
-//                arr+thread_element_start+(i+1)*sequence_size,
-//                arr+thread_element_start+(i+1)*sequence_size+sequence_size);
-
-        int num_seq_length_4 = sequence_size/4;
-
-
-        __m128i O1, O2;
-        __m128i A, B;
-        A = _mm_loadu_si128((__m128i*)arr+thread_element_start+i*sequence_size);
-        B = _mm_loadu_si128((__m128i*)arr+thread_element_start+(i+1)*sequence_size);
-        B = _mm_shuffle_epi32(B,SHUFFLE_REVERSE);
-        BitonicMergeKernel(&O1, &O2, A, B);
-        // todo: store O1 in the output array
-        O1 = O2;
-        // todo: scan A and B, read the smaller one in to O2
-
-
-        // If the number of sequences is not even,
-        // there remains one sequence un-merged.
-        if (num_sequences%2!=0) {
-
-        }
-
-
-      }
-
-    }
-    // If true, then there remains two sequences un-merged.
-    // The total size of two sequences is the number of elements allocated to this thread.
-    if (sequence_size!=(elements_each_thread<<1)) {
-
-    }
-
-  }
-}
-
-
-void ParalMergeSort_SIMD(int *arr, size_t arr_size, int num_threads) {
-  // According to the paper of Chhugani et al..
-  // [Efficient implementation of sorting on multi-core SIMD CPU architecture]
-  int M = 32768; // M=cacahe_size/(2*element_size)=256KB/8B=32K
-  int num_block = (arr_size+M-1)/M;  // Ceiling.
-  int M_thread = (M+num_threads-1)/num_threads;  // Ceiling.
-
-
-  int *partially_sorted_blocks = malloc(arr_size * sizeof(partially_sorted_blocks));
-
-  for (int i=0; i<num_block; ++i) {
-    int start = i*M , end_exclude = start+M;
-    end_exclude = end_exclude>arr_size ? arr_size : end_exclude;
-    SortBlock(arr, arr_size, start, end_exclude, num_threads);
-  }
-
-}
-
-
-void SSETest() {
-  int aaa[10] = {1,2,3,4,5,6,7,8,9,10};
-  PrintArray_Int(aaa, 10, 10);
-  __m128i A = _mm_loadu_si128((__m128i*)aaa),
-          B = _mm_loadu_si128((__m128i*)aaa+4),
-          temp;
-
-  temp = _mm_shuffle_epi32(A, SHUFFLE_REVERSE);
-  _mm_storeu_si128((__m128i*)aaa, temp);
-  PrintArray_Int(aaa, 10, 10);
-
-  _mm_storeu_si128((__m128i*)aaa, B);
-  PrintArray_Int(aaa, 10, 10);
-
-  _mm_storeu_si128((__m128i*)aaa, A);
-  temp = _mm_blend_epi32(A, B, 0x3);
-  _mm_storeu_si128((__m128i*)aaa, temp);
-  PrintArray_Int(aaa, 10, 10);
-
-  return;
-}
+//void Sort4x4OnColumn(__m128i a, __m128i b, __m128i c, __m128i d) {
+//  __m128i temp_min0, temp_min1, temp_max0, temp_max1, temp_mid0, temp_mid1;
+//  temp_min0 = _mm_min_epi32(a, b);
+//  temp_min1 = _mm_min_epi32(c, d);
+//  temp_max0 = _mm_max_epi32(a, b);
+//  temp_max1 = _mm_max_epi32(c, d);
+//  a = _mm_min_epi32(temp_min0, temp_min1);
+//  d = _mm_min_epi32(temp_max0, temp_max1);
+//  temp_mid0 = _mm_max_epi32(temp_min0, temp_min1);
+//  temp_mid1 = _mm_min_epi32(temp_max0, temp_max1);
+//  b = _mm_min_epi32(temp_mid0, temp_mid1);
+//  c = _mm_max_epi32(temp_mid0, temp_mid1);
+//}
+//
+//
+//void Transpose4x4(__m128i a, __m128i b, __m128i c, __m128i d) {
+//  // Similar to the _MM_TRANSPOSE4_PS in <xmmintrin.h>.
+//  __m128i temp0, temp1, temp2, temp3;
+//  temp0 = _mm_unpacklo_epi32(a, b);
+//  temp2 = _mm_unpacklo_epi32(c, d);
+//  temp1 = _mm_unpackhi_epi32(a, b);
+//  temp3 = _mm_unpackhi_epi32(c, d);
+//  a = _mm_unpacklo_epi32(temp0, temp2);
+//  b = _mm_unpackhi_epi32(temp0, temp2);
+//  c = _mm_unpacklo_epi32(temp1, temp3);
+//  d = _mm_unpackhi_epi32(temp1, temp3);
+//}
+//
+//void InsertionSort(int *arr, size_t arr_size, int start, int end_exclude) {
+//  for (int i=start+1; i<end_exclude; ++i) {
+//    int curr = arr[i];
+//    int j=i-1;
+//    for (; j>=0 && arr[j]>curr; --j) {
+//      arr[j+1] = arr[j];
+//    }
+//    arr[j+1] = curr;
+//  }
+//}
+//
+//
+//void BitonicMergeKernel(__m128i *O1, __m128i *O2, __m128i A, __m128i B) {
+//
+//  __m128i L1, H1, L1p, H1p;
+//  L1 = _mm_min_epi32(A, B);
+//  H1 = _mm_max_epi32(A, B);
+//  // In L1p, the first two ints are from L1, and the last two ints are from H1.
+//  L1p = _mm_blend_epi32(L1, _mm_shuffle_epi32(H1,SHUFFLE_REVERSE), 0xC);
+//  L1p = _mm_shuffle_epi32(L1p, SHUFFLE_REVERSE_LAST_TW0);
+//  // In H1p, the first two ints are from H1, and the last two ints are from L1.
+//  H1p = _mm_blend_epi32(_mm_shuffle_epi32(L1,SHUFFLE_REVERSE), H1, 0x3);
+//  H1p = _mm_shuffle_epi32(H1p, SHUFFLE_REVERSE_FIRST_TW0);
+//
+//  __m128i L2, H2, L2p, H2p, L2pp, H2pp;
+//  L2 = _mm_min_epi32(L2, H2);
+//  H2 = _mm_min_epi32(L2, H2);
+//  L2p = _mm_unpacklo_epi32(L2, H2);
+//  H2p = _mm_unpackhi_epi32(L2, H2);
+//  L2pp = _mm_blend_epi32(L2p, _mm_shuffle_epi32(H2p, SHUFFLE_REVERSE), 0xC);
+//  L2pp = _mm_shuffle_epi32(L2pp, SHUFFLE_REVERSE_LAST_TW0);
+//  H2pp = _mm_blend_epi32(_mm_shuffle_epi32(L2p, SHUFFLE_REVERSE), H2p, 0x3);
+//  H2pp = _mm_shuffle_epi32(H2pp, SHUFFLE_REVERSE_FIRST_TW0);
+//
+//  __m128i L3, H3;
+//  L3 = _mm_min_epi32(L2pp, H2pp);
+//  H3 = _mm_max_epi32(L2pp, H2pp);
+//  *O1 = _mm_blend_epi32(L3, _mm_shuffle_epi32(H3,SHUFFLE_REVERSE), 0xC);
+//  *O1 = _mm_shuffle_epi32(*O1,SHUFFLE_REVERSE_LAST_TW0);
+//  *O2 = _mm_blend_epi32(_mm_shuffle_epi32(L3,SHUFFLE_REVERSE), H3, 0x3);
+//  *O2 = _mm_shuffle_epi32(*O2,SHUFFLE_REVERSE_FIRST_TW0);
+//
+//}
+//
+//
+//void MergeConsecutive2Seqs(int *arr, int first_start, int second_start, int second_end_exclude) {
+//  // todo: implement
+//}
+//
+//
+//void SortBlock(int *arr, size_t arr_size, int start, int end_exclude, int num_threads) {
+//  omp_set_num_threads(num_threads);
+//  int elements_each_thread = ((end_exclude-start)+num_threads-1)/num_threads;  // Ceiling.
+//  #pragma omp parallel
+//  {
+//    int pid = omp_get_thread_num();
+//    int offset = pid*elements_each_thread;
+//    int thread_element_start = start + offset;
+//    int thread_element_end = thread_element_start + elements_each_thread;
+//    thread_element_end = thread_element_end>end_exclude ? end_exclude : thread_element_end;
+//
+//    // Generate sorted sequences of length 4.
+//    for (int i=thread_element_start; i<thread_element_end; i+=16) {
+//      int remain_elements = thread_element_end - i;
+//      if (remain_elements>=16) {
+//        __m128i a, b, c, d;
+//        a = _mm_loadu_si128((__m128i*)arr+i);
+//        b = _mm_loadu_si128((__m128i*)arr+i+4);
+//        c = _mm_loadu_si128((__m128i*)arr+i+8);
+//        d = _mm_loadu_si128((__m128i*)arr+i+16);
+//        Sort4x4OnColumn(a, b, c, d);
+//        Transpose4x4(a, b, c, d);
+//        _mm_storeu_si128((__m128i*)arr+i, a);
+//        _mm_storeu_si128((__m128i*)arr+i+4, b);
+//        _mm_storeu_si128((__m128i*)arr+i+8, c);
+//        _mm_storeu_si128((__m128i*)arr+i+12, d);
+//      } else {
+//        InsertionSort(arr, arr_size, i, i+remain_elements);
+//      }
+//    }
+//
+//    // Merge sequences of length 4 to 8, and 8 to 16, and so on.
+//    int sequence_size;
+//    for (sequence_size=4; sequence_size<=elements_each_thread; sequence_size<<=1) {
+//      int num_sequences = (elements_each_thread+sequence_size-1)/sequence_size;
+//
+//      // Merge 2 sequences at a time.
+//      for (int i=0; i<num_sequences; i+=2) {
+//
+////        MergeConsecutive2Seqs(arr,
+////                arr+thread_element_start+i*sequence_size,
+////                arr+thread_element_start+(i+1)*sequence_size,
+////                arr+thread_element_start+(i+1)*sequence_size+sequence_size);
+//
+//        int num_seq_length_4 = sequence_size/4;
+//
+//
+//        __m128i O1, O2;
+//        __m128i A, B;
+//        A = _mm_loadu_si128((__m128i*)arr+thread_element_start+i*sequence_size);
+//        B = _mm_loadu_si128((__m128i*)arr+thread_element_start+(i+1)*sequence_size);
+//        B = _mm_shuffle_epi32(B,SHUFFLE_REVERSE);
+//        BitonicMergeKernel(&O1, &O2, A, B);
+//        // todo: store O1 in the output array
+//        O1 = O2;
+//        // todo: scan A and B, read the smaller one in to O2
+//
+//
+//        // If the number of sequences is not even,
+//        // there remains one sequence un-merged.
+//        if (num_sequences%2!=0) {
+//
+//        }
+//
+//
+//      }
+//
+//    }
+//    // If true, then there remains two sequences un-merged.
+//    // The total size of two sequences is the number of elements allocated to this thread.
+//    if (sequence_size!=(elements_each_thread<<1)) {
+//      // todo: implement
+//    }
+//
+//  }
+//}
+//
+//
+//void ParalMergeSort_SIMD(int *arr, size_t arr_size, int num_threads) {
+//  // According to the paper of Chhugani et al..
+//  // [Efficient implementation of sorting on multi-core SIMD CPU architecture]
+//  int M = 32768; // M=cacahe_size/(2*element_size)=256KB/8B=32K
+//  int num_block = (arr_size+M-1)/M;  // Ceiling.
+//  int M_thread = (M+num_threads-1)/num_threads;  // Ceiling.
+//
+//
+//  int *partially_sorted_blocks = malloc(arr_size * sizeof(partially_sorted_blocks));
+//
+//  for (int i=0; i<num_block; ++i) {
+//    int start = i*M , end_exclude = start+M;
+//    end_exclude = end_exclude>arr_size ? arr_size : end_exclude;
+//    SortBlock(arr, arr_size, start, end_exclude, num_threads);
+//  }
+//
+//  // todo: implement
+//
+//}
+//
+//
+//void SSETest() {
+//  int aaa[10] = {1,2,3,4,5,6,7,8,9,10};
+//  PrintArray_Int(aaa, 10, 10);
+//  __m128i A = _mm_loadu_si128((__m128i*)aaa),
+//          B = _mm_loadu_si128((__m128i*)aaa+4),
+//          temp;
+//
+//  temp = _mm_shuffle_epi32(A, SHUFFLE_REVERSE);
+//  _mm_storeu_si128((__m128i*)aaa, temp);
+//  PrintArray_Int(aaa, 10, 10);
+//
+//  _mm_storeu_si128((__m128i*)aaa, B);
+//  PrintArray_Int(aaa, 10, 10);
+//
+//  _mm_storeu_si128((__m128i*)aaa, A);
+//  temp = _mm_blend_epi32(A, B, 0x3);
+//  _mm_storeu_si128((__m128i*)aaa, temp);
+//  PrintArray_Int(aaa, 10, 10);
+//
+//  return;
+//}
 
 
 #endif //SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H
