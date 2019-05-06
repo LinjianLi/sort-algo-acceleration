@@ -5,10 +5,19 @@
 #ifndef SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H
 #define SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H
 
+#define SHUFFLE_REVERSE 0x1B
+#define SHUFFLE_REVERSE_LAST_TW0 0xE1
+#define SHUFFLE_REVERSE_FIRST_TW0 0xB4
+
 #include <memory.h>
 #include <string.h>  // memset
 #include <math.h>
+#include <stdlib.h>
 #include <stdint.h>
+#include <immintrin.h>
+#include <xmmintrin.h>
+#include <emmintrin.h>
+#include <tmmintrin.h>
 #include "omp.h"
 
 
@@ -262,10 +271,13 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
   }
 
 
-  // Initialize buffers. And set write pointers to all zero.
+  // Initialize buffers. And set write pointers to the end of each buffer.
+  // Program writes from the end to the start.
   int *buffers = malloc(num_radixes * num_elems_per_radix_buf * sizeof(*buffers));
   size_t *buf_write_pointers = malloc(num_radixes * sizeof(*buf_write_pointers));
-  memset(buf_write_pointers, 0, num_radixes*sizeof(*buf_write_pointers));
+  for (size_t i=0; i<num_radixes; ++i) {
+    buf_write_pointers[i] = num_elems_per_radix_buf;
+  }
 
   int *output_sorted = malloc(array_size * sizeof(*output_sorted));
 
@@ -280,15 +292,17 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
     // Put element into buffer.
     buffers[current_radix * num_elems_per_radix_buf
             +
-            (buf_write_pointers[current_radix]++)] = array[array_size-i];
+            (--buf_write_pointers[current_radix])] = array[array_size-i];
 
     // If the buffer is full, flush it.
-    if (buf_write_pointers[current_radix]==num_elems_per_radix_buf) {
+    if (buf_write_pointers[current_radix]==0) {
       size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-      for (size_t j=0; j<num_elems_per_radix_buf; ++j) {  // Flush buffer to memory.
-        output_sorted[--histogram[current_radix]] = buffers[buf_pos_this_radix + j];
-      }
-      buf_write_pointers[current_radix] = 0;   // Reset pointer.
+
+      // Flush buffer to memory.
+      histogram[current_radix] -= num_elems_per_radix_buf;
+      memcpy(output_sorted+histogram[current_radix], buffers+buf_pos_this_radix, num_elems_per_radix_buf*sizeof(*output_sorted));
+
+      buf_write_pointers[current_radix] = num_elems_per_radix_buf;   // Reset pointer.
     }
   }
 
@@ -296,13 +310,17 @@ void CountSortOnBits_Buffer_1Thread(int *array, size_t array_size,
   // there may be some elements still in buffers which have not been flushed.
   // They need to be flushed.
   for (size_t current_radix=0; current_radix<num_radixes; ++current_radix) {
-    // If the pointer is not at 0,
+    // If the pointer is not at the end,
     // it means that this buffer contains some elements that have not been flushed.
-    if (buf_write_pointers[current_radix]!=0) {
+    if (buf_write_pointers[current_radix]!=num_elems_per_radix_buf) {
       size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-      for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
-        output_sorted[--histogram[current_radix]] = buffers[buf_pos_this_radix + j];
-      }
+
+      // Flush buffer to memory.
+      int num_remain = num_elems_per_radix_buf - buf_write_pointers[current_radix];
+      histogram[current_radix] -= num_remain;
+      memcpy(output_sorted+histogram[current_radix],
+              buffers + buf_pos_this_radix + buf_write_pointers[current_radix],
+             num_remain*sizeof(*output_sorted));
     }
   }
 
@@ -410,11 +428,13 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
   // If scanning from the start, the output is unstable.
   #pragma omp parallel
   {
-    // Initialize buffers. And set write pointers to all zero.
+    // Initialize buffers. And set write pointers to the end of each buffer.
+    // Program writes from the end to the start.
     int *buffers = malloc(num_radixes * num_elems_per_radix_buf * sizeof(*buffers));
     size_t *buf_write_pointers = malloc(num_radixes * sizeof(*buf_write_pointers));
-    memset(buf_write_pointers, 0, num_radixes*sizeof(*buf_write_pointers));
-
+    for (size_t i=0; i<num_radixes; ++i) {
+      buf_write_pointers[i] = num_elems_per_radix_buf;
+    }
 
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
@@ -424,17 +444,24 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
       int current_radix = array_radixes[i];
 
       // Put element into buffer.
-      size_t buf_w_p = buf_write_pointers[current_radix]++;
+      size_t buf_w_p = --buf_write_pointers[current_radix];
       buffers[current_radix * num_elems_per_radix_buf + buf_w_p] = array[i];
 
       // If the buffer is full, flush it.
-      if (buf_write_pointers[current_radix]==num_elems_per_radix_buf) {
+      if (buf_write_pointers[current_radix]==0) {
         size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-        for (size_t j=0; j<num_elems_per_radix_buf; ++j) {  // Flush buffer to memory.
-          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
-          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
-        }
-        buf_write_pointers[current_radix] = 0;   // Reset pointer.
+
+//        for (size_t j=0; j<num_elems_per_radix_buf; ++j) {  // Flush buffer to memory.
+//          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
+//          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
+//        }
+
+        // Flush buffer to memory.
+        local_histograms[thread_histogram_start_pos + current_radix] -= num_elems_per_radix_buf;
+        int write_pointer = local_histograms[thread_histogram_start_pos + current_radix];
+        memcpy(output_sorted+write_pointer, buffers+buf_pos_this_radix, num_elems_per_radix_buf*sizeof(*output_sorted));
+
+        buf_write_pointers[current_radix] = num_elems_per_radix_buf;   // Reset pointer.
       }
 
     }
@@ -445,12 +472,23 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
     for (size_t current_radix=0; current_radix<num_radixes; ++current_radix) {
       // If the pointer is not at 0,
       // it means that this buffer contains some elements that have not been flushed.
-      if (buf_write_pointers[current_radix]!=0) {
+      if (buf_write_pointers[current_radix]!=num_elems_per_radix_buf) {
         size_t buf_pos_this_radix = current_radix * num_elems_per_radix_buf;
-        for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
-          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
-          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
-        }
+
+
+//        for (size_t j=0; j<buf_write_pointers[current_radix]; ++j) {  // Flush buffer to memory.
+//          int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
+//          output_sorted[write_pointer] = buffers[buf_pos_this_radix + j];
+//        }
+
+        // Flush buffer to memory.
+        int num_remain = num_elems_per_radix_buf - buf_write_pointers[current_radix];
+        local_histograms[thread_histogram_start_pos + current_radix] -= num_remain;
+        int write_pointer = local_histograms[thread_histogram_start_pos + current_radix];
+        memcpy(output_sorted+write_pointer,
+               buffers + buf_pos_this_radix + buf_write_pointers[current_radix],
+               num_remain*sizeof(*output_sorted));
+
       }
     }
     free(buffers);
@@ -519,7 +557,202 @@ void RadixSortLSD_Buffer_OMP(int *arr, size_t arr_size, size_t radix_size,
 }
 
 
-void ParalMergeSort_SIMD() {}
+void Sort4x4OnColumn(__m128i a, __m128i b, __m128i c, __m128i d) {
+  __m128i temp_min0, temp_min1, temp_max0, temp_max1, temp_mid0, temp_mid1;
+  temp_min0 = _mm_min_epi32(a, b);
+  temp_min1 = _mm_min_epi32(c, d);
+  temp_max0 = _mm_max_epi32(a, b);
+  temp_max1 = _mm_max_epi32(c, d);
+  a = _mm_min_epi32(temp_min0, temp_min1);
+  d = _mm_min_epi32(temp_max0, temp_max1);
+  temp_mid0 = _mm_max_epi32(temp_min0, temp_min1);
+  temp_mid1 = _mm_min_epi32(temp_max0, temp_max1);
+  b = _mm_min_epi32(temp_mid0, temp_mid1);
+  c = _mm_max_epi32(temp_mid0, temp_mid1);
+}
+
+
+void Transpose4x4(__m128i a, __m128i b, __m128i c, __m128i d) {
+  // Similar to the _MM_TRANSPOSE4_PS in <xmmintrin.h>.
+  __m128i temp0, temp1, temp2, temp3;
+  temp0 = _mm_unpacklo_epi32(a, b);
+  temp2 = _mm_unpacklo_epi32(c, d);
+  temp1 = _mm_unpackhi_epi32(a, b);
+  temp3 = _mm_unpackhi_epi32(c, d);
+  a = _mm_unpacklo_epi32(temp0, temp2);
+  b = _mm_unpackhi_epi32(temp0, temp2);
+  c = _mm_unpacklo_epi32(temp1, temp3);
+  d = _mm_unpackhi_epi32(temp1, temp3);
+}
+
+void InsertionSort(int *arr, size_t arr_size, int start, int end_exclude) {
+  for (int i=start+1; i<end_exclude; ++i) {
+    int curr = arr[i];
+    int j=i-1;
+    for (; j>=0 && arr[j]>curr; --j) {
+      arr[j+1] = arr[j];
+    }
+    arr[j+1] = curr;
+  }
+}
+
+
+void BitonicMergeKernel(__m128i *O1, __m128i *O2, __m128i A, __m128i B) {
+
+  __m128i L1, H1, L1p, H1p;
+  L1 = _mm_min_epi32(A, B);
+  H1 = _mm_max_epi32(A, B);
+  // In L1p, the first two ints are from L1, and the last two ints are from H1.
+  L1p = _mm_blend_epi32(L1, _mm_shuffle_epi32(H1,SHUFFLE_REVERSE), 0xC);
+  L1p = _mm_shuffle_epi32(L1p, SHUFFLE_REVERSE_LAST_TW0);
+  // In H1p, the first two ints are from H1, and the last two ints are from L1.
+  H1p = _mm_blend_epi32(_mm_shuffle_epi32(L1,SHUFFLE_REVERSE), H1, 0x3);
+  H1p = _mm_shuffle_epi32(H1p, SHUFFLE_REVERSE_FIRST_TW0);
+
+  __m128i L2, H2, L2p, H2p, L2pp, H2pp;
+  L2 = _mm_min_epi32(L2, H2);
+  H2 = _mm_min_epi32(L2, H2);
+  L2p = _mm_unpacklo_epi32(L2, H2);
+  H2p = _mm_unpackhi_epi32(L2, H2);
+  L2pp = _mm_blend_epi32(L2p, _mm_shuffle_epi32(H2p, SHUFFLE_REVERSE), 0xC);
+  L2pp = _mm_shuffle_epi32(L2pp, SHUFFLE_REVERSE_LAST_TW0);
+  H2pp = _mm_blend_epi32(_mm_shuffle_epi32(L2p, SHUFFLE_REVERSE), H2p, 0x3);
+  H2pp = _mm_shuffle_epi32(H2pp, SHUFFLE_REVERSE_FIRST_TW0);
+
+  __m128i L3, H3;
+  L3 = _mm_min_epi32(L2pp, H2pp);
+  H3 = _mm_max_epi32(L2pp, H2pp);
+  *O1 = _mm_blend_epi32(L3, _mm_shuffle_epi32(H3,SHUFFLE_REVERSE), 0xC);
+  *O1 = _mm_shuffle_epi32(*O1,SHUFFLE_REVERSE_LAST_TW0);
+  *O2 = _mm_blend_epi32(_mm_shuffle_epi32(L3,SHUFFLE_REVERSE), H3, 0x3);
+  *O2 = _mm_shuffle_epi32(*O2,SHUFFLE_REVERSE_FIRST_TW0);
+
+}
+
+
+void MergeConsecutive2Seqs(int *arr, int first_start, int second_start, int second_end_exclude) {
+  // todo: implement
+}
+
+
+void SortBlock(int *arr, size_t arr_size, int start, int end_exclude, int num_threads) {
+  omp_set_num_threads(num_threads);
+  int elements_each_thread = ((end_exclude-start)+num_threads-1)/num_threads;  // Ceiling.
+  #pragma omp parallel
+  {
+    int pid = omp_get_thread_num();
+    int offset = pid*elements_each_thread;
+    int thread_element_start = start + offset;
+    int thread_element_end = thread_element_start + elements_each_thread;
+    thread_element_end = thread_element_end>end_exclude ? end_exclude : thread_element_end;
+
+    // Generate sorted sequences of length 4.
+    for (int i=thread_element_start; i<thread_element_end; i+=16) {
+      int remain_elements = thread_element_end - i;
+      if (remain_elements>=16) {
+        __m128i a, b, c, d;
+        a = _mm_loadu_si128((__m128i*)arr+i);
+        b = _mm_loadu_si128((__m128i*)arr+i+4);
+        c = _mm_loadu_si128((__m128i*)arr+i+8);
+        d = _mm_loadu_si128((__m128i*)arr+i+16);
+        Sort4x4OnColumn(a, b, c, d);
+        Transpose4x4(a, b, c, d);
+        _mm_storeu_si128((__m128i*)arr+i, a);
+        _mm_storeu_si128((__m128i*)arr+i+4, b);
+        _mm_storeu_si128((__m128i*)arr+i+8, c);
+        _mm_storeu_si128((__m128i*)arr+i+12, d);
+      } else {
+        InsertionSort(arr, arr_size, i, i+remain_elements);
+      }
+    }
+
+    // Merge sequences of length 4 to 8, and 8 to 16, and so on.
+    int sequence_size;
+    for (sequence_size=4; sequence_size<=elements_each_thread; sequence_size<<=1) {
+      int num_sequences = (elements_each_thread+sequence_size-1)/sequence_size;
+
+      // Merge 2 sequences at a time.
+      for (int i=0; i<num_sequences; i+=2) {
+
+//        MergeConsecutive2Seqs(arr,
+//                arr+thread_element_start+i*sequence_size,
+//                arr+thread_element_start+(i+1)*sequence_size,
+//                arr+thread_element_start+(i+1)*sequence_size+sequence_size);
+
+        int num_seq_length_4 = sequence_size/4;
+
+
+        __m128i O1, O2;
+        __m128i A, B;
+        A = _mm_loadu_si128((__m128i*)arr+thread_element_start+i*sequence_size);
+        B = _mm_loadu_si128((__m128i*)arr+thread_element_start+(i+1)*sequence_size);
+        B = _mm_shuffle_epi32(B,SHUFFLE_REVERSE);
+        BitonicMergeKernel(&O1, &O2, A, B);
+        // todo: store O1 in the output array
+        O1 = O2;
+        // todo: scan A and B, read the smaller one in to O2
+
+
+        // If the number of sequences is not even,
+        // there remains one sequence un-merged.
+        if (num_sequences%2!=0) {
+
+        }
+
+
+      }
+
+    }
+    // If true, then there remains two sequences un-merged.
+    // The total size of two sequences is the number of elements allocated to this thread.
+    if (sequence_size!=(elements_each_thread<<1)) {
+
+    }
+
+  }
+}
+
+
+void ParalMergeSort_SIMD(int *arr, size_t arr_size, int num_threads) {
+  // According to the paper of Chhugani et al..
+  // [Efficient implementation of sorting on multi-core SIMD CPU architecture]
+  int M = 32768; // M=cacahe_size/(2*element_size)=256KB/8B=32K
+  int num_block = (arr_size+M-1)/M;  // Ceiling.
+  int M_thread = (M+num_threads-1)/num_threads;  // Ceiling.
+
+
+  int *partially_sorted_blocks = malloc(arr_size * sizeof(partially_sorted_blocks));
+
+  for (int i=0; i<num_block; ++i) {
+    int start = i*M , end_exclude = start+M;
+    end_exclude = end_exclude>arr_size ? arr_size : end_exclude;
+    SortBlock(arr, arr_size, start, end_exclude, num_threads);
+  }
+
+}
+
+
+void SSETest() {
+  int aaa[10] = {1,2,3,4,5,6,7,8,9,10};
+  PrintArray_Int(aaa, 10, 10);
+  __m128i A = _mm_loadu_si128(aaa),
+          B = _mm_loadu_si128(aaa+4),
+          temp;
+
+  temp = _mm_shuffle_epi32(A, SHUFFLE_REVERSE);
+  _mm_storeu_si128(aaa, temp);
+  PrintArray_Int(aaa, 10, 10);
+
+  _mm_storeu_si128(aaa, B);
+  PrintArray_Int(aaa, 10, 10);
+
+  _mm_storeu_si128(aaa, A);
+  temp = _mm_blend_epi32(A, B, 0x3);
+  _mm_storeu_si128(aaa, temp);
+  PrintArray_Int(aaa, 10, 10);
+
+  return;
+}
 
 
 #endif //SORT_ALGO_ACCELERATION_SORTALGOIMPLEACCEL_H
