@@ -740,15 +740,15 @@ void SSETest() {
           temp;
 
   temp = _mm_shuffle_epi32(A, SHUFFLE_REVERSE);
-  _mm_storeu_si128(aaa, temp);
+  _mm_storeu_si128((__m128i*)aaa, temp);
   PrintArray_Int(aaa, 10, 10);
 
-  _mm_storeu_si128(aaa, B);
+  _mm_storeu_si128((__m128i*)aaa, B);
   PrintArray_Int(aaa, 10, 10);
 
-  _mm_storeu_si128(aaa, A);
+  _mm_storeu_si128((__m128i*)aaa, A);
   temp = _mm_blend_epi32(A, B, 0x3);
-  _mm_storeu_si128(aaa, temp);
+  _mm_storeu_si128((__m128i*)aaa, temp);
   PrintArray_Int(aaa, 10, 10);
 
   return;
