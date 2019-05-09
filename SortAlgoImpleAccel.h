@@ -557,34 +557,94 @@ void RadixSortLSD_Buffer_OMP(int *arr, size_t arr_size, size_t radix_size,
 }
 
 
-//void Sort4x4OnColumn(__m128i a, __m128i b, __m128i c, __m128i d) {
-//  __m128i temp_min0, temp_min1, temp_max0, temp_max1, temp_mid0, temp_mid1;
-//  temp_min0 = _mm_min_epi32(a, b);
-//  temp_min1 = _mm_min_epi32(c, d);
-//  temp_max0 = _mm_max_epi32(a, b);
-//  temp_max1 = _mm_max_epi32(c, d);
-//  a = _mm_min_epi32(temp_min0, temp_min1);
-//  d = _mm_min_epi32(temp_max0, temp_max1);
-//  temp_mid0 = _mm_max_epi32(temp_min0, temp_min1);
-//  temp_mid1 = _mm_min_epi32(temp_max0, temp_max1);
-//  b = _mm_min_epi32(temp_mid0, temp_mid1);
-//  c = _mm_max_epi32(temp_mid0, temp_mid1);
-//}
-//
-//
-//void Transpose4x4(__m128i a, __m128i b, __m128i c, __m128i d) {
-//  // Similar to the _MM_TRANSPOSE4_PS in <xmmintrin.h>.
-//  __m128i temp0, temp1, temp2, temp3;
-//  temp0 = _mm_unpacklo_epi32(a, b);
-//  temp2 = _mm_unpacklo_epi32(c, d);
-//  temp1 = _mm_unpackhi_epi32(a, b);
-//  temp3 = _mm_unpackhi_epi32(c, d);
-//  a = _mm_unpacklo_epi32(temp0, temp2);
-//  b = _mm_unpackhi_epi32(temp0, temp2);
-//  c = _mm_unpacklo_epi32(temp1, temp3);
-//  d = _mm_unpackhi_epi32(temp1, temp3);
-//}
-//
+void Simple_Merge_2_Consecutive(int *arr, int start, int start2, int end_exclude) {
+  int num_total = end_exclude - start;
+  int *merged = malloc(num_total * sizeof(*merged));
+  int wp = 0, rp1 = start, rp2 = start2;
+  while (rp1<start2 && rp2<end_exclude) {
+    merged[wp++] = arr[rp1]<arr[rp2] ? arr[rp1++] : arr[rp2++];
+  }
+  while (rp1<start2) {
+    merged[wp++] = arr[rp1++];
+  }
+  while (rp2<end_exclude) {
+    merged[wp++] = arr[rp2++];
+  }
+  memcpy(arr+start, merged, num_total*sizeof(*arr));
+  free(merged);
+}
+
+
+void Merge_Radix_OMP(int *arr, size_t arr_size, size_t radix_size, size_t num_threads) {
+  // todo: debug
+
+  fprintf(stderr, "This function has not been debugged to "
+                  "address the problem about boundary!!!");
+
+  omp_set_num_threads(num_threads);
+  int elements_per_thread = arr_size/num_threads;
+
+  // Sort each block.
+  #pragma omp parallel
+  {
+    RadixSortLSD_OMP(arr + elements_per_thread*omp_get_thread_num(),
+                     elements_per_thread,
+                     radix_size,
+                     1);
+  }
+
+  // Merge all blocks. Assuming the number of blocks is power of 2.
+  // todo: Address the problem when then number of blocks is not power of 2.
+  int run_length = elements_per_thread;
+  int num_remain_blocks = num_threads;
+  while (num_remain_blocks>1) {
+    #pragma omp parallel for
+    for (int i=0; i<num_remain_blocks; i+=2) {
+      int start_pos = i*run_length;
+      Simple_Merge_2_Consecutive(arr, start_pos, start_pos+run_length, start_pos+2*run_length);
+    }
+    run_length <<= 1;
+    num_remain_blocks >>= 1;
+  }
+}
+
+
+
+void Sort4x4OnColumn(__m128i a, __m128i b, __m128i c, __m128i d) {
+  __m128i temp_min0, temp_min1, temp_max0, temp_max1, temp_mid0, temp_mid1;
+  temp_min0 = _mm_min_epi32(a, b);
+  temp_min1 = _mm_min_epi32(c, d);
+  temp_max0 = _mm_max_epi32(a, b);
+  temp_max1 = _mm_max_epi32(c, d);
+  a = _mm_min_epi32(temp_min0, temp_min1);
+  d = _mm_min_epi32(temp_max0, temp_max1);
+  temp_mid0 = _mm_max_epi32(temp_min0, temp_min1);
+  temp_mid1 = _mm_min_epi32(temp_max0, temp_max1);
+  b = _mm_min_epi32(temp_mid0, temp_mid1);
+  c = _mm_max_epi32(temp_mid0, temp_mid1);
+}
+
+
+void Transpose4x4(__m128i a, __m128i b, __m128i c, __m128i d) {
+  // Similar to the _MM_TRANSPOSE4_PS in <xmmintrin.h>.
+  __m128i temp0, temp1, temp2, temp3;
+  temp0 = _mm_unpacklo_epi32(a, b);
+  temp2 = _mm_unpacklo_epi32(c, d);
+  temp1 = _mm_unpackhi_epi32(a, b);
+  temp3 = _mm_unpackhi_epi32(c, d);
+  a = _mm_unpacklo_epi32(temp0, temp2);
+  b = _mm_unpackhi_epi32(temp0, temp2);
+  c = _mm_unpacklo_epi32(temp1, temp3);
+  d = _mm_unpackhi_epi32(temp1, temp3);
+}
+
+
+// The server of the course do not support AVX2!
+// Which means that "_mm_blend_epi32" can not be used.
+// So, I did not finish the remaining lab.
+
+
+
 //void InsertionSort(int *arr, size_t arr_size, int start, int end_exclude) {
 //  for (int i=start+1; i<end_exclude; ++i) {
 //    int curr = arr[i];

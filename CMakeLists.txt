@@ -7,3 +7,4 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp -mavx -mavx2")
 
 add_executable(sort main.c)
 add_executable(rdx_sort radix_sort.c)
+add_executable(merg_sort merge_sort.c)

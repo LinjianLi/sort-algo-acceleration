@@ -12,7 +12,7 @@
 void sort_gen(int *d, int N, int seed) {
   srand(seed);
   for(int i=0;i<N;i++){
-    d[i]=rand();
+    d[i]=rand()%100;
   }
 }
 
