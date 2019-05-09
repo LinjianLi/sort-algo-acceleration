@@ -12,6 +12,6 @@ int main(int argc, char *argv[]) {
   sort_gen(arr, n, seed);
   int num_threads = 24;
   RadixSortLSD_Buffer_OMP(arr, n, 8, 16, num_threads);
-  printf("The middle number: %d", arr[n>>1]);
+  printf("%d", arr[n>>1]);
   return 0;
 }
