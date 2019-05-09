@@ -114,14 +114,11 @@ void CountSortOnBits(int *array, size_t array_size,
 }
 
 
+
 void CountSortOnBits_OMP(int *array, const size_t array_size,
                          const size_t bits_leftmost_pos, const size_t bits_rightmost_pos,
                          const size_t num_threads) {
 
-  if ((array_size/num_threads)*num_threads != array_size) {
-    fprintf(stderr,"For now, the algorithm only support the input that the array size is multiple of number of threads!\n");
-    return;
-  }
 
   omp_set_num_threads(num_threads);
 
@@ -132,7 +129,7 @@ void CountSortOnBits_OMP(int *array, const size_t array_size,
   const size_t num_bits_to_shift = bits_rightmost_pos;
   const uint32_t mask = 0xFFFFFFFF >> (32-radix_size);
 
-  const size_t num_elems_per_section = array_size/num_threads;
+  const size_t num_elems_per_section = (array_size+num_threads-1)/num_threads;  // Ceiling.
 
   int *output_sorted = malloc(array_size * sizeof(*output_sorted));
 
@@ -159,8 +156,10 @@ void CountSortOnBits_OMP(int *array, const size_t array_size,
     // The shifting operation is because we are doing counting on specific bits.
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
+    size_t array_section_end = array_section_start + num_elems_per_section;
+    if (array_section_end>array_size) { array_section_end = array_size; }
     size_t thread_histogram_start_pos = current_thread_id * num_radixes;
-    for (size_t i = array_section_start; i < array_section_start + num_elems_per_section; ++i) {
+    for (size_t i = array_section_start; i < array_section_end; ++i) {
       ++local_histograms[thread_histogram_start_pos + array_radixes[i]];
     }
   }
@@ -203,9 +202,11 @@ void CountSortOnBits_OMP(int *array, const size_t array_size,
   {
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
+    size_t array_section_end = array_section_start + num_elems_per_section;
+    if (array_section_end>array_size) { array_section_end = array_size; }
     size_t thread_histogram_start_pos = current_thread_id * num_radixes;
     // Note the STABILITY of the sorting algorithm!!!
-    for (int i = array_section_start+num_elems_per_section-1; i >= (int)array_section_start; --i) {
+    for (int i = array_section_end-1; i >= (int)array_section_start; --i) {
       int current_radix = array_radixes[i];
       int write_pointer = --local_histograms[thread_histogram_start_pos + current_radix];
       output_sorted[write_pointer] = array[i];
@@ -346,11 +347,6 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
                                 size_t num_elems_per_radix_buf, size_t num_threads) {
 
 
-  if ((array_size/num_threads)*num_threads != array_size) {
-    fprintf(stderr,"For now, the algorithm only support the input that the array size is multiple of number of threads!\n");
-    return;
-  }
-
   omp_set_num_threads(num_threads);
 
 
@@ -360,7 +356,7 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
   const size_t num_bits_to_shift = bits_rightmost_pos;
   const uint32_t mask = 0xFFFFFFFF >> (32-radix_size);
 
-  const size_t num_elems_per_section = array_size/num_threads;
+  const size_t num_elems_per_section = (array_size+num_threads-1)/num_threads;  // Ceiling.
 
   int *output_sorted = malloc(array_size * sizeof(*output_sorted));
 
@@ -386,8 +382,10 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
     // The shifting operation is because we are doing counting on specific bits.
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
+    size_t array_section_end = array_section_start + num_elems_per_section;
+    if (array_section_end>array_size) { array_section_end = array_size; }
     size_t thread_histogram_start_pos = current_thread_id * num_radixes;
-    for (size_t i = array_section_start; i < array_section_start + num_elems_per_section; ++i) {
+    for (size_t i = array_section_start; i < array_section_end; ++i) {
       ++local_histograms[thread_histogram_start_pos + array_radixes[i]];
     }
   }
@@ -438,9 +436,11 @@ void CountSortOnBits_Buffer_OMP(int *array, size_t array_size,
 
     size_t current_thread_id = omp_get_thread_num();
     size_t array_section_start = current_thread_id * num_elems_per_section;
+    size_t array_section_end = array_section_start + num_elems_per_section;
+    if (array_section_end>array_size) { array_section_end = array_size; }
     size_t thread_histogram_start_pos = current_thread_id * num_radixes;
     // Note the STABILITY of the sorting algorithm!!!
-    for (int i = array_section_start+num_elems_per_section-1; i >= (int)array_section_start; --i) {
+    for (int i = array_section_end-1; i >= (int)array_section_start; --i) {
       int current_radix = array_radixes[i];
 
       // Put element into buffer.
