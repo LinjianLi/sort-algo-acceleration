@@ -7,7 +7,7 @@
 
 int main(int argc, char *argv[]) {
   int n = (int) strtol(argv[1], NULL, 10);
-  float seed = strtof(argv[2], NULL);
+  int seed = (int) strtol(argv[2], NULL, 10);
   int *arr = malloc(n * sizeof(*arr));  // int *arr = new int[n];
   sort_gen(arr, n, seed);
   int num_threads = 24;
